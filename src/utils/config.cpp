@@ -45,6 +45,18 @@ static std::ostream& operator<<(std::ostream& os, const SceneType& sceneType)
         os << "SceneType::CornellNightClub";
         break;
     }
+    case SceneType::ModernHall: {
+        os << "SceneType::TheWoodenStaircase";
+        break;
+    }
+    case SceneType::TheBreakfastRoom: {
+        os << "SceneType::TheBreakfastRoom";
+        break;
+    }
+    case SceneType::TheModernLivingRoom: {
+        os << "SceneType::TheModernLivingRoom";
+        break;
+    }
     }
     return os;
 }
@@ -80,26 +92,7 @@ std::ostream& operator<<(std::ostream& os, const Config& config)
        << "    - enable_soft_shadow: " << config.features.enableSoftShadow << std::endl
        << "    - enable_normal_interp: " << config.features.enableNormalInterp << std::endl
        << "    - enable_texture_mapping: " << config.features.enableTextureMapping << std::endl
-       << "    - enable_accel_structure: " << config.features.enableAccelStructure << std::endl
-       << "  + extra_features: " << std::endl
-       << "    - enable_bloom_effect: " << config.features.extra.enableBloomEffect << std::endl;
-
-
-    os << "    - enable_multiple_rays_per_pixel: " << config.features.extra.enableMultipleRaysPerPixel << std::endl;
-
-
-    os << "    - enable_motion_blur: " << config.features.extra.enableMotionBlur << std::endl;
-
-
-    os << "    - enable_depth_of_field: " << config.features.extra.enableDepthOfField << std::endl;
-    os << "    - enable_glossy_reflection: " << config.features.extra.enableGlossyReflection << std::endl;
-
-
-    os << "    - enable_transparency: " << config.features.extra.enableTransparency << std::endl;
-    os << "    - enable_bvh_sah_binning: " << config.features.extra.enableBvhSahBinning << std::endl;
-    os << "    - enable_environment_mapping: " << config.features.extra.enableEnvironmentMapping << std::endl;
-    os << "    - enable_bilinear_texture_filtering: " << config.features.extra.enableBilinearTextureFiltering << std::endl;
-    os << "    - enable_mipmap_texture_filtering: " << config.features.extra.enableMipmapTextureFiltering << std::endl;
+       << "    - enable_accel_structure: " << config.features.enableAccelStructure << std::endl;
 
     os << "  + cameras: " << std::endl;
     for (const auto& camera: config.cameras) {
@@ -261,47 +254,6 @@ Config readConfigFile(const std::filesystem::path& config_path)
     config.features.enableAccelStructure = table["features"]["enable_accel_structure"]
                                        .as_boolean()
                                        ->value_or(false);
-
-    if (table["features"]["extra"]["enable_bloom_effect"]) {
-        config.features.extra.enableBloomEffect = table["features"]["extra"]["enable_bloom_effect"]
-                                                      .as_boolean()
-                                                      ->value_or(false);
-    }
-
-    if (table["features"]["extra"]["enable_multiple_rays_per_pixel"]) {
-        config.features.extra.enableMultipleRaysPerPixel = table["features"]["extra"]["enable_multiple_rays_per_pixel"].as_boolean()->value_or(false);
-    }
-
-    if (table["features"]["extra"]["enable_motion_blur"]) {
-        config.features.extra.enableMotionBlur = table["features"]["extra"]["enable_motion_blur"]
-                                                     .as_boolean()->value_or(false);
-    }
-
-    if (table["features"]["extra"]["enable_depth_of_field"]) {
-        config.features.extra.enableDepthOfField = table["features"]["extra"]["enable_depth_of_field"]
-                                                       .as_boolean()
-                                                       ->value_or(false);
-    }
-    if (table["features"]["extra"]["enable_glossy_reflection"]) {
-        config.features.extra.enableGlossyReflection = table["features"]["extra"]["enable_glossy_reflection"]
-                                                           .as_boolean()
-                                                           ->value_or(false);
-    }
-    if (table["features"]["extra"]["enable_environment_mapping"]) {
-        config.features.extra.enableEnvironmentMapping = table["features"]["extra"]["enable_environment_mapping"]
-                                                             .as_boolean()
-                                                             ->value_or(false);
-    }
-    if (table["features"]["extra"]["enable_bilinear_texture_filtering"]) {
-        config.features.extra.enableBilinearTextureFiltering = table["features"]["extra"]["enable_bilinear_texture_filtering"]
-                                                                   .as_boolean()
-                                                                   ->value_or(false);
-    }
-    if (table["features"]["extra"]["enable_mipmap_texture_filtering"]) {
-        config.features.extra.enableMipmapTextureFiltering = table["features"]["extra"]["enable_mipmap_texture_filtering"]
-                                                                 .as_boolean()
-                                                                 ->value_or(false);
-    }
 
     const toml::array* cameras = table["cameras"].as_array();
     if (cameras) {

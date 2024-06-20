@@ -14,6 +14,7 @@ DISABLE_WARNINGS_PUSH()
 #include <fmt/chrono.h>
 #include <fmt/core.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/transform.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
@@ -59,7 +60,7 @@ int main(int argc, char** argv) {
 
         SceneType sceneType = SceneType::CornellNightClub;
         std::optional<Ray> optDebugRay;
-        Scene scene         = loadScenePrebuilt(sceneType, config.dataPath);
+        Scene scene         = loadScenePrebuilt(sceneType, config.dataPath, camera, config.features);
         EmbreeInterface embreeInterface(scene);
         std::shared_ptr<ReservoirGrid> previousFrameGrid;
 
@@ -155,13 +156,14 @@ int main(int argc, char** argv) {
         // Load scene.
         Scene scene;
         std::string sceneName;
+        Trackball dummyCamera { &window, glm::radians(config.cameras[0].fieldOfView), config.cameras[0].distanceFromLookAt };
         std::visit(make_visitor(
                        [&](const std::filesystem::path& path) {
                            scene = loadSceneFromFile(path, config.lights);
                            sceneName = path.stem().string();
                        },
                        [&](const SceneType& type) {
-                           scene = loadScenePrebuilt(type, config.dataPath);
+                           scene = loadScenePrebuilt(type, config.dataPath, dummyCamera, config.features);
                            sceneName = serialize(type);
                        }),
             config.scene);
@@ -238,6 +240,25 @@ static void drawLightsOpenGL(const Scene& scene, const Trackball& camera, int /*
                     glEnd();
                     glPopAttrib();
                 },
+                [](const DiskLight& light) {
+                    constexpr uint32_t SUBDIVISIONS = 64U;
+                    constexpr float ANGLE_INCREMENT = 360.0f / static_cast<float>(SUBDIVISIONS);
+                    glm::vec3 planeVector;
+                    if (light.normal.x == 0.0f) { planeVector = glm::normalize(glm::cross(light.normal, glm::vec3(1.0f, 0.0f, 0.0f))); }
+                    else                        { planeVector = glm::normalize(glm::cross(light.normal, glm::vec3(0.0f, 0.0f, 1.0f))); }
+                    glPushAttrib(GL_ALL_ATTRIB_BITS);
+                    glBegin(GL_TRIANGLE_FAN);
+                    glColor3fv(glm::value_ptr(light.color));
+                    glVertex3fv(glm::value_ptr(light.position));
+                    for (uint32_t subdivision = 0U; subdivision <= SUBDIVISIONS; subdivision++) {
+                        glm::mat3 rotation  = glm::rotate(subdivision * ANGLE_INCREMENT, light.normal);
+                        glm::vec3 position  = light.position + (light.radius * rotation * planeVector);
+                        glColor3fv(glm::value_ptr(light.color));
+                        glVertex3fv(glm::value_ptr(position));
+                    }
+                    glEnd();
+                    glPopAttrib();
+                },
                 [](auto) { /* any other type of light */ }),
             scene.lights[i]);
     }
@@ -288,6 +309,9 @@ void drawSceneOpenGL(const Scene& scene) {
                     enableLight(parallelogramLight.v0 + parallelogramLight.edge01, 0.25f * parallelogramLight.color1);
                     enableLight(parallelogramLight.v0 + parallelogramLight.edge02, 0.25f * parallelogramLight.color2);
                     enableLight(parallelogramLight.v0 + parallelogramLight.edge01 + parallelogramLight.edge02, 0.25f * parallelogramLight.color3);
+                },
+                [&](const DiskLight& diskLight) {
+                    enableLight(diskLight.position, diskLight.color);
                 },
                 [](auto) { /* any other type of light */ }),
             light);

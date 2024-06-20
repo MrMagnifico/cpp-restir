@@ -11,6 +11,7 @@ DISABLE_WARNINGS_POP()
 #include <framework/variant_helper.h>
 
 #include <rendering/render.h>
+#include <utils/magic_enum.hpp>
 #include <utils/utils.h>
 
 #include <array>
@@ -61,8 +62,6 @@ void UiManager::drawProjectTab() {
     ImGui::Separator();
     drawFeaturesToggles();
     ImGui::Separator();
-    drawExtraFeaturesToggles();
-    ImGui::Separator();
     drawCameraStats();
     ImGui::Spacing();
     ImGui::Separator();
@@ -84,27 +83,18 @@ void UiManager::drawMiscTab() {
 }
 
 void UiManager::drawSceneSelection() {
-    constexpr std::array items {
-        "SingleTriangle",
-        "Cube (segment light)",
-        "Cube (textured)",
-        "Cornell Box (with mirror)",
-        "Cornell Box (parallelogram light and mirror)",
-        "Cornell Nightclub",
-        "Monkey",
-        "Teapot",
-        "Dragon",
-        "Spheres",
-        "Custom",
-    };
-    if (ImGui::Combo("Scenes", reinterpret_cast<int*>(&sceneType), items.data(), int(items.size()))) {
+    constexpr auto availableScenes = magic_enum::enum_names<SceneType>();
+    std::vector<const char*> availableScenesPointers;
+    std::transform(std::begin(availableScenes), std::end(availableScenes), std::back_inserter(availableScenesPointers),
+                   [](const auto& str) { return str.data(); });
+    if (ImGui::Combo("Scene", reinterpret_cast<int*>(&sceneType), availableScenesPointers.data(), static_cast<int>(availableScenesPointers.size()))) {
         optDebugRay.reset();
-        scene               = loadScenePrebuilt(sceneType, config.dataPath);
+        scene               = loadScenePrebuilt(sceneType, config.dataPath, camera, config.features);
         selectedLightIdx    = scene.lights.empty() ? -1 : 0;
         embreeInterface.changeScene(scene);
         if (optDebugRay) {
             HitInfo dummy {};
-            embreeInterface.closestHit(*optDebugRay, dummy);
+            embreeInterface.closestHit(optDebugRay.value(), dummy);
         }
     }
 }
@@ -123,19 +113,6 @@ void UiManager::drawFeaturesToggles() {
         ImGui::Checkbox("BVH",                      &config.features.enableAccelStructure);
         ImGui::Checkbox("Texture mapping",          &config.features.enableTextureMapping);
         ImGui::Checkbox("Normal interpolation",     &config.features.enableNormalInterp);
-    }
-}
-
-void UiManager::drawExtraFeaturesToggles() {
-    if (ImGui::CollapsingHeader("Extra Features")) {
-        ImGui::Checkbox("Environment mapping",                          &config.features.extra.enableEnvironmentMapping);
-        ImGui::Checkbox("BVH SAH binning",                              &config.features.extra.enableBvhSahBinning);
-        ImGui::Checkbox("Bloom effect",                                 &config.features.extra.enableBloomEffect);
-        ImGui::Checkbox("Texture filtering(bilinear interpolation)",    &config.features.extra.enableBilinearTextureFiltering);
-        ImGui::Checkbox("Texture filtering(mipmapping)",                &config.features.extra.enableMipmapTextureFiltering);
-        ImGui::Checkbox("Glossy reflections",                           &config.features.extra.enableGlossyReflection);
-        ImGui::Checkbox("Transparency",                                 &config.features.extra.enableTransparency);
-        ImGui::Checkbox("Depth of field",                               &config.features.extra.enableDepthOfField);
     }
 }
 

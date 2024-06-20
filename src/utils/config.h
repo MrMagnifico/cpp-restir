@@ -35,7 +35,7 @@ struct Config {
     std::filesystem::path outputDir                         = "";
 
     std::vector<CameraConfig> cameras;
-    std::vector<std::variant<PointLight, SegmentLight, ParallelogramLight>> lights;
+    std::vector<std::variant<PointLight, SegmentLight, ParallelogramLight, DiskLight>> lights;
 };
 
 std::ostream& operator<<(std::ostream& arg, const Config& config);

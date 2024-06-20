@@ -8,6 +8,7 @@
 #include <framework/disable_all_warnings.h>
 DISABLE_WARNINGS_PUSH()
 #include <glm/geometric.hpp>
+#include <glm/gtx/transform.hpp>
 DISABLE_WARNINGS_POP()
 #include <cmath>
 #include <random>
@@ -27,6 +28,17 @@ void sampleParallelogramLight(const ParallelogramLight& parallelogramLight, glm:
     glm::vec3 linLerp01 = glm::mix(parallelogramLight.color0, parallelogramLight.color1, axOneFrac);
     glm::vec3 linLerp23 = glm::mix(parallelogramLight.color2, parallelogramLight.color3, axOneFrac);
     color               = glm::mix(linLerp01, linLerp23, axTwoFrac);
+}
+
+void sampleDiskLight(const DiskLight& diskLight, glm::vec3& position, glm::vec3& color) {
+    glm::vec3 planeVector;
+    if (diskLight.normal.x == 0.0f) { planeVector = glm::normalize(glm::cross(diskLight.normal, glm::vec3(1.0f, 0.0f, 0.0f))); }
+    else                            { planeVector = glm::normalize(glm::cross(diskLight.normal, glm::vec3(0.0f, 0.0f, 1.0f))); }
+    float randomAngle           = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, 360.0f);
+    glm::mat3 rotation          = glm::rotate(randomAngle, diskLight.normal);
+    float distanceFromCenter    = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, diskLight.radius);
+    position                    = diskLight.position + (distanceFromCenter * rotation * planeVector);
+    color                       = diskLight.color;
 }
 
 Reservoir genCanonicalSamples(const Scene& scene, const EmbreeInterface& embreeInterface, const Features& features, Ray ray) {
@@ -68,6 +80,9 @@ Reservoir genCanonicalSamples(const Scene& scene, const EmbreeInterface& embreeI
         } else if (std::holds_alternative<ParallelogramLight>(light)) {
             const ParallelogramLight parallelogramLight = std::get<ParallelogramLight>(light);
             sampleParallelogramLight(parallelogramLight, sample.position, sample.color);
+        } else if (std::holds_alternative<DiskLight>(light)) {
+            const DiskLight diskLight = std::get<DiskLight>(light);
+            sampleDiskLight(diskLight, sample.position, sample.color);
         }
 
         // Update reservoir

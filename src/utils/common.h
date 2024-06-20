@@ -63,17 +63,11 @@ struct ParallelogramLight {
     glm::vec3 color0, color1, color2, color3;
 };
 
-struct ExtraFeatures {
-    bool enableEnvironmentMapping       = false;
-    bool enableBvhSahBinning            = false;
-    bool enableMotionBlur               = false;
-    bool enableBloomEffect              = false;
-    bool enableBilinearTextureFiltering = false;
-    bool enableMipmapTextureFiltering   = false;
-    bool enableMultipleRaysPerPixel     = false;
-    bool enableGlossyReflection         = false;
-    bool enableTransparency             = false;
-    bool enableDepthOfField             = false;
+struct DiskLight {
+    glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec3 color;
+    float radius;
 };
 
 struct Features {
@@ -108,6 +102,4 @@ struct Features {
     bool enableToneMapping  = true;
     float gamma             = 1.0f;
     float exposure          = 1.5f;
-
-    ExtraFeatures extra = {};
 };
