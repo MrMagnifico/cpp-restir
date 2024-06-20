@@ -29,7 +29,7 @@ struct Config {
     Features features = {};
 
     bool cliRenderingEnabled                                = false;
-    glm::ivec2 windowSize                                   = { 800, 800 };
+    glm::ivec2 windowSize                                   = { 1280, 720 };
     std::filesystem::path dataPath                          = DATA_DIR;
     std::variant<SceneType, std::filesystem::path> scene    = SceneType::CornellBoxParallelogramLight;
     std::filesystem::path outputDir                         = "";

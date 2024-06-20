@@ -7,98 +7,67 @@ DISABLE_WARNINGS_POP()
 #include <rendering/shading.h>
 #include <utils/utils.h>
 
-size_t Reservoir::update(LightSample sample, float weight) {
-    // Find reservoir with smallest weight sum
-    size_t smallestWeightIdx    = 0ULL;
-    float smallestWeight        = std::numeric_limits<float>::max();
-    for (size_t reservoirIdx = 0ULL; reservoirIdx < wSums.size(); reservoirIdx++) {
-        if (wSums[reservoirIdx] < smallestWeight) {
-            smallestWeightIdx   = reservoirIdx;
-            smallestWeight      = wSums[reservoirIdx];
+
+void Reservoir::update(LightSample sample, float weight) {
+    numSamples  += 1ULL;
+    wSum        += weight;
+    for (SampleData& outputSample : outputSamples) {
+        float uniformRandom = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, 1.0f);
+        if (uniformRandom < (weight / wSum)) { 
+            outputSample.lightSample.position   = sample.position;
+            outputSample.lightSample.color      = sample.color;
         }
     }
-
-    // Selected reservoir processes sample
-    sampleNums[smallestWeightIdx]   += 1ULL;
-    wSums[smallestWeightIdx]        += weight;
-    float uniformRandom             = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, 1.0f);
-    if (uniformRandom < (weight / wSums[smallestWeightIdx] )) { 
-        outputSamples[smallestWeightIdx].lightSample.position   = sample.position;
-        outputSamples[smallestWeightIdx].lightSample.color      = sample.color;
-    }
-
-    return smallestWeightIdx;
-}
-
-size_t Reservoir::totalSampleNums() const {
-    size_t sampleCountSum = 0ULL;
-    for (size_t sampleNum : sampleNums) { sampleCountSum += sampleNum; }
-    return sampleCountSum;
 }
 
 void Reservoir::combineBiased(const std::span<Reservoir>& reservoirStream, Reservoir& finalReservoir, const Features& features) {
-    // Process reservoir stream sample-by-sample
-    std::vector<size_t> totalSampleCounts(finalReservoir.outputSamples.size(), 0ULL);
+    size_t totalSampleCount = 0ULL;
     for (const Reservoir& reservoir : reservoirStream) {
-        for (size_t sampleIdx = 0ULL; sampleIdx < reservoir.outputSamples.size(); sampleIdx++) {
-            float pdfValue = targetPDF(reservoir.outputSamples[sampleIdx].lightSample,
-                                       finalReservoir.cameraRay, finalReservoir.hitInfo,
-                                       features);
-            size_t updatedFinalReservoirIdx = finalReservoir.update(
-                reservoir.outputSamples[sampleIdx].lightSample,
-                pdfValue * reservoir.outputSamples[sampleIdx].outputWeight * reservoir.sampleNums[sampleIdx]);
-            totalSampleCounts[updatedFinalReservoirIdx] += reservoir.sampleNums[sampleIdx];
+        totalSampleCount += reservoir.numSamples * reservoir.outputSamples.size();
+        for (const SampleData& reservoirSample : reservoir.outputSamples) {
+            float pdfValue = targetPDF(reservoirSample.lightSample, finalReservoir.cameraRay, finalReservoir.hitInfo, features);
+            finalReservoir.update(reservoirSample.lightSample, pdfValue * reservoirSample.outputWeight * reservoir.numSamples);
         }
     }
-    finalReservoir.sampleNums = std::move(totalSampleCounts);
 
-    // Compute unbiased constribution weights for each sample in the final reservoir
-    for (size_t reservoirIdx = 0ULL; reservoirIdx < finalReservoir.outputSamples.size(); reservoirIdx++) {
-        float finalPdfValue = targetPDF(finalReservoir.outputSamples[reservoirIdx].lightSample,
-                                        finalReservoir.cameraRay, finalReservoir.hitInfo,
-                                        features);
-        if (finalPdfValue == 0.0f)  { finalReservoir.outputSamples[reservoirIdx].outputWeight = 0.0f; }
-        else                        { finalReservoir.outputSamples[reservoirIdx].outputWeight = (1.0f / finalPdfValue) * 
-                                                                                                (1.0f / finalReservoir.sampleNums[reservoirIdx]) *
-                                                                                                finalReservoir.wSums[reservoirIdx]; }
+    finalReservoir.numSamples = totalSampleCount;
+    for (SampleData& finalReservoirSample : finalReservoir.outputSamples) {
+        float finalPdfValue = targetPDF(finalReservoirSample.lightSample, finalReservoir.cameraRay, finalReservoir.hitInfo, features);
+        if (finalPdfValue == 0.0f)  { finalReservoirSample.outputWeight = 0.0f; }
+        else                        { finalReservoirSample.outputWeight = (1.0f / finalPdfValue) * 
+                                                                          (1.0f / finalReservoir.numSamples) *
+                                                                          finalReservoir.wSum; }
     }
 }
 
 void Reservoir::combineUnbiased(const std::span<Reservoir>& reservoirStream, Reservoir& finalReservoir, const BvhInterface& bvh, const Features& features) {
-    // Process reservoir stream sample-by-sample
-    std::vector<size_t> totalSampleCounts(finalReservoir.outputSamples.size(), 0ULL);
+    size_t totalSampleCount = 0ULL;
     for (const Reservoir& reservoir : reservoirStream) {
-        for (size_t sampleIdx = 0ULL; sampleIdx < reservoir.outputSamples.size(); sampleIdx++) {
-            float pdfValue = targetPDF(reservoir.outputSamples[sampleIdx].lightSample,
-                                       finalReservoir.cameraRay, finalReservoir.hitInfo,
-                                       features);
-            size_t updatedFinalReservoirIdx = finalReservoir.update(
-                reservoir.outputSamples[sampleIdx].lightSample,
-                pdfValue * reservoir.outputSamples[sampleIdx].outputWeight * reservoir.sampleNums[sampleIdx]);
-            totalSampleCounts[updatedFinalReservoirIdx] += reservoir.sampleNums[sampleIdx];
+        totalSampleCount    += reservoir.numSamples * reservoir.outputSamples.size();
+        for (const SampleData& reservoirSample : reservoir.outputSamples) {
+            float pdfValue      = targetPDF(reservoirSample.lightSample, finalReservoir.cameraRay, finalReservoir.hitInfo, features);
+            finalReservoir.update(reservoirSample.lightSample, pdfValue * reservoirSample.outputWeight * reservoir.numSamples);
         }
     }
-    finalReservoir.sampleNums = std::move(totalSampleCounts);
+    finalReservoir.numSamples = totalSampleCount;
 
-    // Count only samples which have a contribution in the final reservoir's domain for use in the unbiased contribution weights
     std::vector<size_t> numValidSamples(finalReservoir.outputSamples.size(), 0ULL);
     for (const Reservoir& reservoir : reservoirStream) {
         for (size_t outputSampleIdx = 0ULL; outputSampleIdx < finalReservoir.outputSamples.size(); outputSampleIdx++) {
             const SampleData& finalReservoirSample  = finalReservoir.outputSamples[outputSampleIdx]; 
             float pdfValue                          = targetPDF(finalReservoirSample.lightSample, reservoir.cameraRay, reservoir.hitInfo, features);
             if (features.spatialReuseVisibilityCheck)   { pdfValue *= testVisibilityLightSample(finalReservoirSample.lightSample.position, bvh, features, reservoir.cameraRay, reservoir.hitInfo); }
-            if (pdfValue > 0.0f)                        { numValidSamples[outputSampleIdx] += reservoir.totalSampleNums(); }
+            if (pdfValue > 0.0f)                        { numValidSamples[outputSampleIdx] += reservoir.numSamples * reservoir.outputSamples.size(); }
         }
     }
     
-    // Compute unbiased constribution weights for each sample in the final reservoir
     for (size_t outputSampleIdx = 0ULL; outputSampleIdx < finalReservoir.outputSamples.size(); outputSampleIdx++) {
         SampleData& finalReservoirSample    = finalReservoir.outputSamples[outputSampleIdx];
         float finalPdfValue                 = targetPDF(finalReservoirSample.lightSample, finalReservoir.cameraRay, finalReservoir.hitInfo, features);
         if (finalPdfValue == 0.0f || numValidSamples[outputSampleIdx] == 0ULL)  { finalReservoirSample.outputWeight = 0.0f; }
         else                                                                    { finalReservoirSample.outputWeight = (1.0f / finalPdfValue) * 
                                                                                                                       (1.0f / numValidSamples[outputSampleIdx]) *
-                                                                                                                      finalReservoir.wSums[outputSampleIdx]; }
+                                                                                                                      finalReservoir.wSum; }
     }
 }
 

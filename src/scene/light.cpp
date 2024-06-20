@@ -14,16 +14,12 @@ DISABLE_WARNINGS_POP()
 #include <vector>
 
 
-// samples a segment light source
-// you should fill in the vectors position and color with the sampled position and color
 void sampleSegmentLight(const SegmentLight& segmentLight, glm::vec3& position, glm::vec3& color) {
     float segFrac   = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, 1.0f);
     position        = glm::mix(segmentLight.endpoint0, segmentLight.endpoint1, segFrac);
     color           = glm::mix(segmentLight.color0, segmentLight.color1, segFrac);
 }
 
-// samples a parallelogram light source
-// you should fill in the vectors position and color with the sampled position and color
 void sampleParallelogramLight(const ParallelogramLight& parallelogramLight, glm::vec3& position, glm::vec3& color) {
     float axOneFrac = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, 1.0f);
     float axTwoFrac = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, 1.0f);
@@ -33,9 +29,6 @@ void sampleParallelogramLight(const ParallelogramLight& parallelogramLight, glm:
     color               = glm::mix(linLerp01, linLerp23, axTwoFrac);
 }
 
-// Given an intersection, computes the contribution from all light sources at the intersection point
-// in this method you should cycle the light sources and for each one compute their contribution
-// don't forget to check for visibility (shadows!)
 Reservoir genCanonicalSamples(const Scene& scene, const BvhInterface& bvh, const Features& features, Ray ray) {
     Reservoir reservoir(features.numSamplesInReservoir);
     
@@ -51,7 +44,6 @@ Reservoir genCanonicalSamples(const Scene& scene, const BvhInterface& bvh, const
     }
 
     // Uniform selection of light sources
-    // TODO: Figure out better solution than uniform sampling (fuck you, point lights)
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> distr(0, scene.lights.size() - 1UL);
@@ -60,12 +52,8 @@ Reservoir genCanonicalSamples(const Scene& scene, const BvhInterface& bvh, const
     glm::vec3 intersectionPosition  = ray.origin + (ray.t * ray.direction);
     glm::vec3 diffuseColor          = diffuseAlbedo(reservoir.hitInfo, features);
 
-    // Zero out cautionary one sample for zero division avoidance
-    for (size_t reservoirIdx = 0ULL; reservoirIdx < reservoir.outputSamples.size(); reservoirIdx++) {
-        reservoir.sampleNums[reservoirIdx] = 0ULL;
-    }
-    
     // Obtain initial light samples
+    reservoir.numSamples = 0ULL; // Zero out cautionary one sample for zero division avoidance
     for (uint32_t sampleIdx = 0U; sampleIdx < features.initialLightSamples; sampleIdx++) {
         // Generate sample
         LightSample sample;
@@ -88,15 +76,14 @@ Reservoir genCanonicalSamples(const Scene& scene, const BvhInterface& bvh, const
     }
 
     // Set output weight and do optional visibility check
-    for (size_t reservoirIdx = 0ULL; reservoirIdx < reservoir.outputSamples.size(); reservoirIdx++)  {
-        if (features.initialSamplesVisibilityCheck && !testVisibilityLightSample(reservoir.outputSamples[reservoirIdx].lightSample.position, bvh, features, ray, reservoir.hitInfo)) {
-            reservoir.outputSamples[reservoirIdx].outputWeight = 0.0f;
-        } else {
-            float pdfValue = targetPDF(reservoir.outputSamples[reservoirIdx].lightSample, reservoir.cameraRay, reservoir.hitInfo, features);
-            if (pdfValue == 0.0f)   { reservoir.outputSamples[reservoirIdx].outputWeight  = 0.0f; }
-            else                    { reservoir.outputSamples[reservoirIdx].outputWeight  = (1.0f / pdfValue) * 
-                                                                                            (1.0f / reservoir.sampleNums[reservoirIdx]) *
-                                                                                            reservoir.wSums[reservoirIdx]; }
+    for (SampleData& reservoirSample : reservoir.outputSamples) {
+        if (features.initialSamplesVisibilityCheck && !testVisibilityLightSample(reservoirSample.lightSample.position, bvh, features, ray, reservoir.hitInfo)) { reservoirSample.outputWeight = 0.0f; }
+        else {
+            float pdfValue = targetPDF(reservoirSample.lightSample, reservoir.cameraRay, reservoir.hitInfo, features);
+            if (pdfValue == 0.0f)   { reservoirSample.outputWeight  = 0.0f; }
+            else                    { reservoirSample.outputWeight  = (1.0f / pdfValue) * 
+                                                                      (1.0f / reservoir.numSamples) *
+                                                                      reservoir.wSum; }
         }
     }
     
