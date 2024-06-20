@@ -4,6 +4,7 @@ DISABLE_WARNINGS_PUSH()
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 DISABLE_WARNINGS_POP()
+#include <framework/ray.h>
 #include <framework/mesh.h>
 
 enum class DrawMode {
@@ -21,6 +22,12 @@ struct HitInfo {
     glm::vec3 barycentricCoord;
     glm::vec2 texCoord;
     Material material;
+    uint32_t geometryId;
+};
+
+struct RayHit {
+    Ray ray;
+    HitInfo hit;
 };
 
 struct Plane {

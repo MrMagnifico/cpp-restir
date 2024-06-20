@@ -7,24 +7,24 @@ DISABLE_WARNINGS_POP()
 
 #include <framework/ray.h>
 
+#include <ray_tracing/embree_interface.h>
 #include <rendering/reservoir.h>
 
 // Forward declarations.
 struct Scene;
 class Screen;
 class Trackball;
-class BvhInterface;
 struct Features;
 
-ReservoirGrid genInitialSamples(const Scene& scene, const Trackball& camera, const BvhInterface& bvh, const Screen& screen, const Features& features);
+ReservoirGrid genInitialSamples(const Scene& scene, const Trackball& camera, const EmbreeInterface& embreeInterface, const Screen& screen, const Features& features);
 
-void spatialReuse(ReservoirGrid& reservoirGrid, const BvhInterface& bvh, const Screen& screen, const Features& features);
+void spatialReuse(ReservoirGrid& reservoirGrid, const EmbreeInterface& embreeInterface, const Screen& screen, const Features& features);
 
-void temporalReuse(ReservoirGrid& reservoirGrid, ReservoirGrid& previousFrameGrid, const BvhInterface& bvh,
+void temporalReuse(ReservoirGrid& reservoirGrid, ReservoirGrid& previousFrameGrid, const EmbreeInterface& embreeInterface,
                    Screen& screen, const glm::vec2 motionVector, const Features& features);
 
 // Main rendering function.
 ReservoirGrid renderRayTracing(std::shared_ptr<ReservoirGrid> previousFrameGrid,
                                const Scene& scene, const Trackball& camera,
-                               const BvhInterface& bvh, Screen& screen,
+                               const EmbreeInterface& embreeInterface, Screen& screen,
                                const glm::vec2 motionVector, const Features& features);

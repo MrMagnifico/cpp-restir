@@ -1,6 +1,5 @@
 #pragma once
-#include <ray_tracing/bvh_interface.h>
-#include <ray_tracing/intersect.h>
+#include <ray_tracing/embree_interface.h>
 #include <rendering/reservoir.h>
 #include <rendering/shading.h>
 #include <scene/scene.h>
@@ -15,4 +14,4 @@ void sampleSegmentLight(const SegmentLight& segmentLight, glm::vec3& position, g
 void sampleParallelogramLight(const ParallelogramLight& parallelogramLight, glm::vec3& position, glm::vec3& color);
 
 // ReSTIR per-pixel canonical samples
-Reservoir genCanonicalSamples(const Scene& scene, const BvhInterface& bvh, const Features& features, Ray ray);
+Reservoir genCanonicalSamples(const Scene& scene, const EmbreeInterface& embreeInterface, const Features& features, Ray ray);

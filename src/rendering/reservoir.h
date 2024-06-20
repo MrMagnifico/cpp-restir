@@ -2,7 +2,7 @@
 #ifndef _RESERVOIR_H_
 #define _RESERVOIR_H_
 
-#include <ray_tracing/bvh_interface.h>
+#include <ray_tracing/embree_interface.h>
 #include <utils/common.h>
 
 #include <framework/disable_all_warnings.h>
@@ -55,7 +55,7 @@ struct Reservoir {
      * @param finalReservoir Struct where final combined reservoir data will be stored. Should have the intersection position info of the relevant pixel
      * @param features Features configuration
     */
-    static void combineUnbiased(const std::span<Reservoir>& reservoirStream, Reservoir& finalReservoir, const BvhInterface& bvh, const Features& features);
+    static void combineUnbiased(const std::span<Reservoir>& reservoirStream, Reservoir& finalReservoir, const EmbreeInterface& embreeInterface, const Features& features);
 };
 
 using ReservoirGrid = std::vector<std::vector<Reservoir>>;

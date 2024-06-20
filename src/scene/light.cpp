@@ -29,14 +29,14 @@ void sampleParallelogramLight(const ParallelogramLight& parallelogramLight, glm:
     color               = glm::mix(linLerp01, linLerp23, axTwoFrac);
 }
 
-Reservoir genCanonicalSamples(const Scene& scene, const BvhInterface& bvh, const Features& features, Ray ray) {
+Reservoir genCanonicalSamples(const Scene& scene, const EmbreeInterface& embreeInterface, const Features& features, Ray ray) {
     Reservoir reservoir(features.numSamplesInReservoir);
     
     // No lights to sample, just return
     if (scene.lights.size() == 0UL) { return reservoir; }
     
     // Compute camera ray intersection with scene
-    bool intersectScene = bvh.intersect(ray, reservoir.hitInfo, features);
+    bool intersectScene = embreeInterface.closestHit(ray, reservoir.hitInfo);
     reservoir.cameraRay = ray;
     if (!intersectScene) {   
         drawRay(ray, CAMERA_RAY_NO_HIT_COLOR);  // Draw a red debug ray if the ray missed
@@ -77,7 +77,7 @@ Reservoir genCanonicalSamples(const Scene& scene, const BvhInterface& bvh, const
 
     // Set output weight and do optional visibility check
     for (SampleData& reservoirSample : reservoir.outputSamples) {
-        if (features.initialSamplesVisibilityCheck && !testVisibilityLightSample(reservoirSample.lightSample.position, bvh, features, ray, reservoir.hitInfo)) { reservoirSample.outputWeight = 0.0f; }
+        if (features.initialSamplesVisibilityCheck && !testVisibilityLightSample(reservoirSample.lightSample.position, embreeInterface, features, ray, reservoir.hitInfo)) { reservoirSample.outputWeight = 0.0f; }
         else {
             float pdfValue = targetPDF(reservoirSample.lightSample, reservoir.cameraRay, reservoir.hitInfo, features);
             if (pdfValue == 0.0f)   { reservoirSample.outputWeight  = 0.0f; }
