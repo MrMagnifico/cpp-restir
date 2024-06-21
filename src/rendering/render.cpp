@@ -6,7 +6,6 @@
 #endif
 
 #include <post_processing/tone_mapping.h>
-#include <ray_tracing/intersect.h>
 #include <rendering/render.h>
 #include <rendering/screen.h>
 #include <scene/light.h>
@@ -17,11 +16,11 @@
 #include <random>
 #include <vector>
 
-
-ReservoirGrid genInitialSamples(const Scene& scene, const Trackball& camera, const BvhInterface& bvh, Screen& screen, const Features& features) {
+PrimaryHitGrid genPrimaryRayHits(const Scene& scene, const Trackball& camera, const EmbreeInterface& embreeInterface, const Screen& screen, const Features& features) {
     glm::ivec2 windowResolution = screen.resolution();
-    ReservoirGrid initialSamples(windowResolution.y, std::vector<Reservoir>(windowResolution.x, Reservoir(features.numSamplesInReservoir)));
+    PrimaryHitGrid primaryHits(windowResolution.y, std::vector<RayHit>(windowResolution.x));
 
+    std::cout << "Primary rays computation..." << std::endl;
     #ifdef NDEBUG
     #pragma omp parallel for schedule(guided)
     #endif
@@ -29,22 +28,66 @@ ReservoirGrid genInitialSamples(const Scene& scene, const Trackball& camera, con
         for (int x = 0; x != windowResolution.x; x++) {
             const glm::vec2 normalizedPixelPos { float(x) / float(windowResolution.x) * 2.0f - 1.0f,
                                                  float(y) / float(windowResolution.y) * 2.0f - 1.0f };
-            const Ray cameraRay     = camera.generateRay(normalizedPixelPos);
-            initialSamples[y][x]    = genCanonicalSamples(scene, bvh, features, cameraRay);
+            primaryHits[y][x].ray = camera.generateRay(normalizedPixelPos); 
+            embreeInterface.closestHit(primaryHits[y][x].ray, primaryHits[y][x].hit);
+        }
+    }
+    return primaryHits;
+}
+
+glm::vec3 finalShading(const Reservoir& reservoir, const Ray& primaryRay, const EmbreeInterface& embreeInterface, const Features& features) {
+    glm::vec3 finalColor(0.0f);
+    for (const SampleData& sample : reservoir.outputSamples) {
+        glm::vec3 sampleColor   = testVisibilityLightSample(sample.lightSample.position, embreeInterface, features, primaryRay, reservoir.hitInfo)  ?
+                                  computeShading(sample.lightSample.position, sample.lightSample.color, features, primaryRay, reservoir.hitInfo)    :
+                                  glm::vec3(0.0f);
+        sampleColor             *= sample.outputWeight;
+        finalColor              += sampleColor;
+    }
+    finalColor /= reservoir.outputSamples.size(); // Divide final shading value by number of samples
+    return finalColor;
+}
+
+void combineToScreen(Screen& screen, const PixelGrid& finalPixelColors, const Features& features) {
+    glm::ivec2 windowResolution = screen.resolution();
+    std::cout << "Iteration combination..." << std::endl;
+    #ifdef NDEBUG
+    #pragma omp parallel for schedule(guided)
+    #endif
+    for (int y = 0; y < windowResolution.y; y++) {
+        for (int x = 0; x != windowResolution.x; x++) {
+            glm::vec3 finalColor = finalPixelColors[y][x] / static_cast<float>(features.maxIterations);
+            if (features.enableToneMapping) { finalColor = exposureToneMapping(finalColor, features); }
+            screen.setPixel(x, y, finalColor);
+        }
+    }
+}
+
+ReservoirGrid genInitialSamples(const PrimaryHitGrid& primaryHits, const Scene& scene, const EmbreeInterface& embreeInterface, const Features& features, const glm::ivec2& windowResolution) {
+    ReservoirGrid initialSamples(windowResolution.y, std::vector<Reservoir>(windowResolution.x, Reservoir(features.numSamplesInReservoir)));
+    std::cout << "Initial light samples generation..." << std::endl;
+    #ifdef NDEBUG
+    #pragma omp parallel for schedule(guided)
+    #endif
+    for (int y = 0; y < windowResolution.y; y++) {
+        for (int x = 0; x != windowResolution.x; x++) {
+            initialSamples[y][x] = genCanonicalSamples(scene, embreeInterface, features, primaryHits[y][x]);
         }
     }
     return initialSamples;
 }
 
-void spatialReuse(ReservoirGrid& reservoirGrid, const BvhInterface& bvh, const Screen& screen, const Features& features) {
+void spatialReuse(ReservoirGrid& reservoirGrid, const EmbreeInterface& embreeInterface, const Screen& screen, const Features& features) {
     // Uniform selection of neighbours in N pixel Manhattan distance radius
     std::random_device rd;
     std::mt19937 gen(rd());
-    std::uniform_int_distribution<> distr(-features.spatialResampleRadius, features.spatialResampleRadius);
+    std::uniform_int_distribution<> distr(-static_cast<int32_t>(features.spatialResampleRadius), features.spatialResampleRadius);
 
+    std::cout << "Spatial reuse..." << std::endl;
     glm::ivec2 windowResolution = screen.resolution();
     ReservoirGrid prevIteration = reservoirGrid;
     for (uint32_t pass = 0U; pass < features.spatialResamplingPasses; pass++) {
+        std::cout << "Pass " << pass + 1 << std::endl;
         #ifdef NDEBUG
         #pragma omp parallel for schedule(guided)
         #endif
@@ -76,7 +119,7 @@ void spatialReuse(ReservoirGrid& reservoirGrid, const BvhInterface& bvh, const S
                 Reservoir combined(current.outputSamples.size());
                 combined.cameraRay  = current.cameraRay;
                 combined.hitInfo    = current.hitInfo;
-                if (features.unbiasedCombination)   { Reservoir::combineUnbiased(selected, combined, bvh, features); }
+                if (features.unbiasedCombination)   { Reservoir::combineUnbiased(selected, combined, embreeInterface, features); }
                 else                                { Reservoir::combineBiased(selected, combined, features); }
                 reservoirGrid[y][x] = combined;
             }
@@ -85,9 +128,11 @@ void spatialReuse(ReservoirGrid& reservoirGrid, const BvhInterface& bvh, const S
     }
 }
 
-void temporalReuse(ReservoirGrid& reservoirGrid, ReservoirGrid& previousFrameGrid, const BvhInterface& bvh,
-                   Screen& screen, const glm::vec2 motionVector, const Features& features) {
+void temporalReuse(ReservoirGrid& reservoirGrid, ReservoirGrid& previousFrameGrid, const EmbreeInterface& embreeInterface,
+                   Screen& screen, const Features& features) {
     glm::ivec2 windowResolution = screen.resolution();
+
+    std::cout << "Temporal reuse..." << std::endl;
     #ifdef NDEBUG
     #pragma omp parallel for schedule(guided)
     #endif
@@ -96,13 +141,10 @@ void temporalReuse(ReservoirGrid& reservoirGrid, ReservoirGrid& previousFrameGri
             // Clamp M and wSum values to a user-defined multiple of the current frame's to bound temporal creep
             Reservoir& current              = reservoirGrid[y][x];
             Reservoir& temporalPredecessor  = previousFrameGrid[y][x];
-            size_t multipleCurrentM         = (features.temporalClampM * current.totalSampleNums()) + 1ULL;
-            if (temporalPredecessor.totalSampleNums() > multipleCurrentM) {
-                for (size_t reservoirIdx = 0ULL; reservoirIdx < temporalPredecessor.outputSamples.size(); reservoirIdx++) {
-                    if (temporalPredecessor.sampleNums[reservoirIdx] == 0ULL) { continue; } // Samples processed by this reservoir might be zero
-                    temporalPredecessor.wSums[reservoirIdx]         *= multipleCurrentM / temporalPredecessor.sampleNums[reservoirIdx];
-                    temporalPredecessor.sampleNums[reservoirIdx]    = multipleCurrentM;
-                }
+            size_t multipleCurrentM         = (features.temporalClampM * current.numSamples) + 1ULL;
+            if (temporalPredecessor.numSamples > multipleCurrentM) {
+                temporalPredecessor.wSum        *= multipleCurrentM / temporalPredecessor.numSamples;
+                temporalPredecessor.numSamples  = multipleCurrentM;
             }
 
             // Combine to single reservoir
@@ -118,37 +160,37 @@ void temporalReuse(ReservoirGrid& reservoirGrid, ReservoirGrid& previousFrameGri
 
 ReservoirGrid renderRayTracing(std::shared_ptr<ReservoirGrid> previousFrameGrid,
                                const Scene& scene, const Trackball& camera,
-                               const BvhInterface& bvh, Screen& screen,
-                               const glm::vec2 motionVector, const Features& features) {
-    ReservoirGrid reservoirGrid = genInitialSamples(scene, camera, bvh, screen, features);
-    if (features.temporalReuse && previousFrameGrid)    { temporalReuse(reservoirGrid, *previousFrameGrid.get(), bvh, screen, motionVector, features); }
-    if (features.spatialReuse)                          { spatialReuse(reservoirGrid, bvh, screen, features); }
-
-    // Final shading
+                               const EmbreeInterface& embreeInterface, Screen& screen,
+                               const Features& features) {
     glm::ivec2 windowResolution = screen.resolution();
-    #ifdef NDEBUG
-    #pragma omp parallel for schedule(guided)
-    #endif
-    for (int y = 0; y < windowResolution.y; y++) {
-        for (int x = 0; x != windowResolution.x; x++) {
-            // Compute shading from final sample(s)
-            glm::vec3 finalColor(0.0f);
-            const Reservoir& reservoir = reservoirGrid[y][x];
-            for (const SampleData& sample : reservoir.outputSamples) {
-                glm::vec3 sampleColor   = testVisibilityLightSample(sample.lightSample.position, bvh, features, reservoir.cameraRay, reservoir.hitInfo)             ?
-                                          computeShading(sample.lightSample.position, sample.lightSample.color, features, reservoir.cameraRay, reservoir.hitInfo)   :
-                                          glm::vec3(0.0f);
-                sampleColor             *= sample.outputWeight;
-                finalColor              += sampleColor;
-            }
-            finalColor /= reservoir.outputSamples.size(); // Divide final shading value by number of samples
+    PrimaryHitGrid primaryHits  = genPrimaryRayHits(scene, camera, embreeInterface, screen, features);
+    PixelGrid finalPixelColors(windowResolution.y,   std::vector<glm::vec3>(windowResolution.x, glm::vec3(0.0f)));
+    ReservoirGrid currentGrid;
 
-            // Apply tone mapping and set final pixel color
-            if (features.enableToneMapping) { finalColor = exposureToneMapping(finalColor, features); }
-            screen.setPixel(x, y, finalColor);
+    for (uint32_t iteration = 0U; iteration < features.maxIterations; iteration++) {
+        std::cout << "= Iteration " << iteration + 1 << std::endl;
+
+        // Carry out ReSTIR steps
+        currentGrid = genInitialSamples(primaryHits, scene, embreeInterface, features, screen.resolution());
+        if (features.temporalReuse && previousFrameGrid)    { temporalReuse(currentGrid, *previousFrameGrid.get(), embreeInterface, screen, features); }
+        if (features.spatialReuse)                          { spatialReuse(currentGrid, embreeInterface, screen, features); }
+
+        // Final shading
+        std::cout << "Shading final samples..." << std::endl;
+        #ifdef NDEBUG
+        #pragma omp parallel for schedule(guided)
+        #endif
+        for (int y = 0; y < windowResolution.y; y++) {
+            for (int x = 0; x != windowResolution.x; x++) {
+                // Accumulate shading from final sample(s) to running sum
+                const Reservoir& reservoir  = currentGrid[y][x];
+                finalPixelColors[y][x]      += finalShading(reservoir, reservoir.cameraRay, embreeInterface, features);
+            }
         }
+
     }
 
-    // Return current frame's final grid for temporal reuse
-    return reservoirGrid;
+    // Produce final color and return current frame's final grid for temporal reuse
+    combineToScreen(screen, finalPixelColors, features);
+    return currentGrid;
 }

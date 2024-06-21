@@ -3,13 +3,25 @@ DISABLE_WARNINGS_PUSH()
 #include <glm/gtc/type_ptr.hpp>
 DISABLE_WARNINGS_POP()
 
+#include <embree4/rtcore.h>
+
 #include <framework/opengl_includes.h>
 
 #include <scene/texture.h>
 #include <ui/draw.h>
+#include <utils/magic_enum.hpp>
 #include <utils/utils.h>
 
 #include <cstdlib>
+#include <iostream>
+
+std::string currentTime() {
+    auto t  = std::time(nullptr);
+    auto tm = std::localtime(&t);
+    std::ostringstream oss;
+    oss << std::put_time(tm, "%d-%m-%Y %H-%M-%S");
+    return oss.str();
+}
 
 float zeroWithinEpsilon(float val) { return std::abs(val) < ZERO_EPSILON; }
 
@@ -28,22 +40,25 @@ glm::vec3 diffuseAlbedo(const HitInfo& hitInfo, const Features& features) {
 
 // test the visibility at a given light sample
 // returns true if sample is visible, false otherwise
-bool testVisibilityLightSample(const glm::vec3& samplePos, const BvhInterface& bvh, const Features& features, Ray ray, HitInfo hitInfo) {
+bool testVisibilityLightSample(const glm::vec3& samplePos, const EmbreeInterface& embreeInterface, const Features& features, Ray ray, HitInfo hitInfo) {
     // Construct shadow ray
     glm::vec3 shadingPoint  = ray.origin + (ray.t * ray.direction);
     glm::vec3 pointToSample = glm::normalize(samplePos - shadingPoint); 
-    shadingPoint            += pointToSample * SHADOW_RAY_EPSILON;      // Small epsilon in shadow ray direction to avoid self-shadowing
+    shadingPoint            += pointToSample * SHADOW_RAY_EPSILON; // Small epsilon in shadow ray direction to avoid self-shadowing
     Ray shadowRay { shadingPoint, pointToSample, glm::distance(shadingPoint, samplePos) };
 
     // Visibility test and debug rays
-    HitInfo shadowRayHit;
-    bool visible = !bvh.intersect(shadowRay, shadowRayHit, features);
+    bool visible = !embreeInterface.anyHit(shadowRay);
     if (visible) {
         drawRay(shadowRay, SHADOW_RAY_NO_HIT_COLOR);
         return true;
     }
     drawRay(shadowRay, SHADOW_RAY_INTERSECT_COLOR);
     return false;
+}
+
+void errorFunction(void* userPtr, enum RTCError error, const char* str) {
+    std::cout << std::format("[EMBREE] {}: {}", magic_enum::enum_name(error), str) << std::endl;
 }
 
 void setOpenGLMatrices(const Trackball& camera) {

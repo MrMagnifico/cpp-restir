@@ -2,7 +2,7 @@
 #ifndef _RESERVOIR_H_
 #define _RESERVOIR_H_
 
-#include <ray_tracing/bvh_interface.h>
+#include <ray_tracing/embree_interface.h>
 #include <utils/common.h>
 
 #include <framework/disable_all_warnings.h>
@@ -26,9 +26,7 @@ struct SampleData {
 };
 
 struct Reservoir {
-    Reservoir(size_t numSamples) : outputSamples(numSamples)
-                                 , sampleNums(numSamples, 1ULL)
-                                 , wSums(numSamples, std::numeric_limits<float>::min()) {}
+    Reservoir(size_t numSamples) : outputSamples(numSamples) {}
 
     // Intersection position info
     Ray cameraRay;
@@ -36,20 +34,10 @@ struct Reservoir {
 
     // Light sampling
     std::vector<SampleData> outputSamples;   
-    std::vector<size_t> sampleNums;
-    std::vector<float> wSums;
+    size_t numSamples   = 1ULL;                                 // Avoid division by zero issues
+    float wSum          = std::numeric_limits<float>::min();    // Avoid division by zero issues
 
-    /**
-     * Process the given sample for potential storage by a sub-reservoir
-     * 
-     * @param sample Light sample
-     * @param weight Selection weight of the sample
-     * 
-     * @return The index of the sub-reservoir which processed this sample
-    */
-    size_t update(LightSample sample, float weight);
-
-    size_t totalSampleNums() const;
+    void update(LightSample sample, float weight);
 
     /**
      * Combine a number of reservoirs in a single final reservoir in a biased fashion (Algorithm 5 in ReSTIR paper)
@@ -67,7 +55,7 @@ struct Reservoir {
      * @param finalReservoir Struct where final combined reservoir data will be stored. Should have the intersection position info of the relevant pixel
      * @param features Features configuration
     */
-    static void combineUnbiased(const std::span<Reservoir>& reservoirStream, Reservoir& finalReservoir, const BvhInterface& bvh, const Features& features);
+    static void combineUnbiased(const std::span<Reservoir>& reservoirStream, Reservoir& finalReservoir, const EmbreeInterface& embreeInterface, const Features& features);
 };
 
 using ReservoirGrid = std::vector<std::vector<Reservoir>>;

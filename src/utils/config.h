@@ -29,13 +29,13 @@ struct Config {
     Features features = {};
 
     bool cliRenderingEnabled                                = false;
-    glm::ivec2 windowSize                                   = { 800, 800 };
+    glm::ivec2 windowSize                                   = { 1280, 720 };
     std::filesystem::path dataPath                          = DATA_DIR;
     std::variant<SceneType, std::filesystem::path> scene    = SceneType::CornellBoxParallelogramLight;
     std::filesystem::path outputDir                         = "";
 
     std::vector<CameraConfig> cameras;
-    std::vector<std::variant<PointLight, SegmentLight, ParallelogramLight>> lights;
+    std::vector<std::variant<PointLight, SegmentLight, ParallelogramLight, DiskLight>> lights;
 };
 
 std::ostream& operator<<(std::ostream& arg, const Config& config);

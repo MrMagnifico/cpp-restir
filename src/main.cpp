@@ -1,7 +1,8 @@
-#include <scene/light.h>
+#include <ray_tracing/embree_interface.h>
 #include <rendering/render.h>
 #include <rendering/reservoir.h>
 #include <rendering/screen.h>
+#include <scene/light.h>
 #include <ui/draw.h>
 #include <ui/ui.h>
 #include <utils/config.h>
@@ -13,6 +14,7 @@ DISABLE_WARNINGS_PUSH()
 #include <fmt/chrono.h>
 #include <fmt/core.h>
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtx/transform.hpp>
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
 #include <glm/vec4.hpp>
@@ -34,10 +36,9 @@ DISABLE_WARNINGS_POP()
 #include <thread>
 #include <variant>
 
-int debugBVHLeafId = 0;
-
 static void drawLightsOpenGL(const Scene& scene, const Trackball& camera, int selectedLight);
 static void drawSceneOpenGL(const Scene& scene);
+
 
 int main(int argc, char** argv) {
     // Read config file if provided
@@ -58,36 +59,25 @@ int main(int argc, char** argv) {
         camera.setCamera(config.cameras[0].lookAt, glm::radians(config.cameras[0].rotation), config.cameras[0].distanceFromLookAt);
 
         SceneType sceneType = SceneType::CornellNightClub;
-        std::optional<Ray> optDebugRay;
-        Scene scene         = loadScenePrebuilt(sceneType, config.dataPath);
-        BvhInterface bvh(&scene);
+        std::optional<RayHit> optDebugRayHit;
+        Scene scene         = loadScenePrebuilt(sceneType, config.dataPath, camera, config.features);
+        EmbreeInterface embreeInterface(scene);
         std::shared_ptr<ReservoirGrid> previousFrameGrid;
 
-        int bvhDebugLevel       = 0;
-        int bvhDebugLeaf        = 0;
-        bool debugBVHLevel      = false;
-        bool debugBVHLeaf       = false;
         ViewMode viewMode       = ViewMode::Rasterization;
         int selectedLightIdx    = scene.lights.empty() ? -1 : 0;
 
-        UiManager uiManager(bvh, camera, config, optDebugRay, previousFrameGrid, scene, sceneType, screen, viewMode, window,
-                            bvhDebugLevel, bvhDebugLeaf, debugBVHLevel, debugBVHLeaf, selectedLightIdx);
+        UiManager uiManager(embreeInterface, camera, config, optDebugRayHit, previousFrameGrid, scene, sceneType, screen, viewMode, window,
+                            selectedLightIdx);
 
         window.registerKeyCallback([&](int key, int /* scancode */, int action, int /* mods */) {
             if (action == GLFW_PRESS) {
                 switch (key) {
                     // Shoot a ray. Produce a ray from camera to the far plane.
                     case GLFW_KEY_R: {
-                        const auto tmp  = window.getNormalizedCursorPos();
-                        optDebugRay     = camera.generateRay(tmp * 2.0f - 1.0f);
-                        break;
-                    }
-                    case GLFW_KEY_A: {
-                        debugBVHLeafId++;
-                        break;
-                    }
-                    case GLFW_KEY_S: {
-                        debugBVHLeafId = std::max(0, debugBVHLeafId - 1);
+                        optDebugRayHit.emplace();
+                        const auto tmp              = window.getNormalizedCursorPos();
+                        optDebugRayHit.value().ray  = camera.generateRay(tmp * 2.0f - 1.0f);
                         break;
                     }
                     case GLFW_KEY_ESCAPE: {
@@ -122,48 +112,24 @@ int main(int argc, char** argv) {
             switch (viewMode) {
                 case ViewMode::Rasterization: {
                     glPushAttrib(GL_ALL_ATTRIB_BITS);
-                    if (debugBVHLeaf) {
-                        glEnable(GL_POLYGON_OFFSET_FILL);
-                        glPolygonOffset(float(1.4), 1.0); // To ensure that debug draw is always visible, adjust the scale used to calculate the depth value
-                        drawSceneOpenGL(scene);
-                        glDisable(GL_POLYGON_OFFSET_FILL);
-                    } else {
-                        drawSceneOpenGL(scene);
-                    }
-                    if (optDebugRay) {
+                    drawSceneOpenGL(scene);
+                    if (optDebugRayHit) {
                         // Call getFinalColor for the debug ray. Ignore the result but tell the function that it should
                         // draw the rays instead.
                         enableDebugDraw = true;
                         glDisable(GL_LIGHTING);
                         glDepthFunc(GL_LEQUAL);
-                        (void) genCanonicalSamples(scene, bvh, config.features, *optDebugRay);
+                        (void) genCanonicalSamples(scene, embreeInterface, config.features, optDebugRayHit.value());
                         enableDebugDraw = false;
                     }
                     glPopAttrib();
 
                     drawLightsOpenGL(scene, camera, selectedLightIdx);
-
-                    if (debugBVHLevel || debugBVHLeaf) {
-                        glPushAttrib(GL_ALL_ATTRIB_BITS);
-                        setOpenGLMatrices(camera);
-                        glDisable(GL_LIGHTING);
-                        glEnable(GL_DEPTH_TEST);
-
-                        // Enable alpha blending. More info at:
-                        // https://learnopengl.com/Advanced-OpenGL/Blending
-                        glEnable(GL_BLEND);
-                        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-                        enableDebugDraw = true;
-                        if (debugBVHLevel)  { bvh.debugDrawLevel(bvhDebugLevel); }
-                        if (debugBVHLeaf)   { bvh.debugDrawLeaf(bvhDebugLeaf); }
-                        enableDebugDraw = false;
-                        glPopAttrib();
-                    }
                 } break;
                 case ViewMode::RayTracing: {
                     const auto start    = std::chrono::high_resolution_clock::now();
                     screen.clear(glm::vec3(0.0f));
-                    previousFrameGrid   = make_shared<ReservoirGrid>(renderRayTracing(previousFrameGrid, scene, camera, bvh, screen, camera.getLastDelta(), config.features));
+                    previousFrameGrid   = make_shared<ReservoirGrid>(renderRayTracing(previousFrameGrid, scene, camera, embreeInterface, screen, config.features));
                     screen.setPixel(0, 0, glm::vec3(1.0f));
                     screen.draw(); // Takes the image generated using ray tracing and outputs it to the screen using OpenGL.
                     const auto end      = std::chrono::high_resolution_clock::now();
@@ -191,18 +157,19 @@ int main(int argc, char** argv) {
         // Load scene.
         Scene scene;
         std::string sceneName;
+        Trackball dummyCamera { &window, glm::radians(config.cameras[0].fieldOfView), config.cameras[0].distanceFromLookAt };
         std::visit(make_visitor(
                        [&](const std::filesystem::path& path) {
                            scene = loadSceneFromFile(path, config.lights);
                            sceneName = path.stem().string();
                        },
                        [&](const SceneType& type) {
-                           scene = loadScenePrebuilt(type, config.dataPath);
+                           scene = loadScenePrebuilt(type, config.dataPath, dummyCamera, config.features);
                            sceneName = serialize(type);
                        }),
             config.scene);
 
-        BvhInterface bvh { &scene };
+        EmbreeInterface embreeInterface(scene);
         std::shared_ptr<ReservoirGrid> previousFrameGrid;
 
         // Create output directory if it does not exist.
@@ -218,7 +185,7 @@ int main(int argc, char** argv) {
                 screen.clear(glm::vec3(0.0f));
                 Trackball camera { &window, glm::radians(cameraConfig.fieldOfView), cameraConfig.distanceFromLookAt };
                 camera.setCamera(cameraConfig.lookAt, glm::radians(cameraConfig.rotation), cameraConfig.distanceFromLookAt);
-                previousFrameGrid           = make_shared<ReservoirGrid>(renderRayTracing(previousFrameGrid, scene, camera, bvh, screen, camera.getLastDelta(), config.features));
+                previousFrameGrid           = make_shared<ReservoirGrid>(renderRayTracing(previousFrameGrid, scene, camera, embreeInterface, screen, config.features));
                 const auto filename_base    = fmt::format("{}_{}_cam_{}", sceneName, start_time_string, index);
                 const auto filepath         = config.outputDir / (filename_base + ".bmp");
                 fmt::print("Image {} saved to {}\n", index, filepath.string());
@@ -274,6 +241,25 @@ static void drawLightsOpenGL(const Scene& scene, const Trackball& camera, int /*
                     glEnd();
                     glPopAttrib();
                 },
+                [](const DiskLight& light) {
+                    constexpr uint32_t SUBDIVISIONS = 64U;
+                    constexpr float ANGLE_INCREMENT = 360.0f / static_cast<float>(SUBDIVISIONS);
+                    glm::vec3 planeVector;
+                    if (light.normal.x == 0.0f) { planeVector = glm::normalize(glm::cross(light.normal, glm::vec3(1.0f, 0.0f, 0.0f))); }
+                    else                        { planeVector = glm::normalize(glm::cross(light.normal, glm::vec3(0.0f, 0.0f, 1.0f))); }
+                    glPushAttrib(GL_ALL_ATTRIB_BITS);
+                    glBegin(GL_TRIANGLE_FAN);
+                    glColor3fv(glm::value_ptr(light.color));
+                    glVertex3fv(glm::value_ptr(light.position));
+                    for (uint32_t subdivision = 0U; subdivision <= SUBDIVISIONS; subdivision++) {
+                        glm::mat3 rotation  = glm::rotate(subdivision * ANGLE_INCREMENT, light.normal);
+                        glm::vec3 position  = light.position + (light.radius * rotation * planeVector);
+                        glColor3fv(glm::value_ptr(light.color));
+                        glVertex3fv(glm::value_ptr(position));
+                    }
+                    glEnd();
+                    glPopAttrib();
+                },
                 [](auto) { /* any other type of light */ }),
             scene.lights[i]);
     }
@@ -324,6 +310,9 @@ void drawSceneOpenGL(const Scene& scene) {
                     enableLight(parallelogramLight.v0 + parallelogramLight.edge01, 0.25f * parallelogramLight.color1);
                     enableLight(parallelogramLight.v0 + parallelogramLight.edge02, 0.25f * parallelogramLight.color2);
                     enableLight(parallelogramLight.v0 + parallelogramLight.edge01 + parallelogramLight.edge02, 0.25f * parallelogramLight.color3);
+                },
+                [&](const DiskLight& diskLight) {
+                    enableLight(diskLight.position, diskLight.color);
                 },
                 [](auto) { /* any other type of light */ }),
             light);

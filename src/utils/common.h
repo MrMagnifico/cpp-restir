@@ -4,6 +4,7 @@ DISABLE_WARNINGS_PUSH()
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
 DISABLE_WARNINGS_POP()
+#include <framework/ray.h>
 #include <framework/mesh.h>
 
 enum class DrawMode {
@@ -21,6 +22,12 @@ struct HitInfo {
     glm::vec3 barycentricCoord;
     glm::vec2 texCoord;
     Material material;
+    uint32_t geometryId;
+};
+
+struct RayHit {
+    Ray ray;
+    HitInfo hit;
 };
 
 struct Plane {
@@ -56,17 +63,11 @@ struct ParallelogramLight {
     glm::vec3 color0, color1, color2, color3;
 };
 
-struct ExtraFeatures {
-    bool enableEnvironmentMapping       = false;
-    bool enableBvhSahBinning            = false;
-    bool enableMotionBlur               = false;
-    bool enableBloomEffect              = false;
-    bool enableBilinearTextureFiltering = false;
-    bool enableMipmapTextureFiltering   = false;
-    bool enableMultipleRaysPerPixel     = false;
-    bool enableGlossyReflection         = false;
-    bool enableTransparency             = false;
-    bool enableDepthOfField             = false;
+struct DiskLight {
+    glm::vec3 position;
+    glm::vec3 normal;
+    glm::vec3 color;
+    float radius;
 };
 
 struct Features {
@@ -90,6 +91,7 @@ struct Features {
     bool temporalReuse                  = true;
 
     // ReSTIR parameters
+    uint32_t maxIterations              = 1U;
     uint32_t numSamplesInReservoir      = 1U;
     uint32_t initialLightSamples        = 32U;
     uint32_t numNeighboursToSample      = 5U;
@@ -101,6 +103,4 @@ struct Features {
     bool enableToneMapping  = true;
     float gamma             = 1.0f;
     float exposure          = 1.5f;
-
-    ExtraFeatures extra = {};
 };

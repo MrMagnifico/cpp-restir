@@ -2,10 +2,7 @@ target_sources(CGFinProjLib
 	PUBLIC
         "${CMAKE_CURRENT_LIST_DIR}/post_processing/tone_mapping.cpp"
         
-        "${CMAKE_CURRENT_LIST_DIR}/ray_tracing/bounding_volume_hierarchy.cpp"
-        "${CMAKE_CURRENT_LIST_DIR}/ray_tracing/bvh_interface.cpp"
-        "${CMAKE_CURRENT_LIST_DIR}/ray_tracing/interpolate.cpp"
-        "${CMAKE_CURRENT_LIST_DIR}/ray_tracing/intersect.cpp"
+        "${CMAKE_CURRENT_LIST_DIR}/ray_tracing/embree_interface.cpp"
         
         "${CMAKE_CURRENT_LIST_DIR}/rendering/render.cpp"
         "${CMAKE_CURRENT_LIST_DIR}/rendering/reservoir.cpp"

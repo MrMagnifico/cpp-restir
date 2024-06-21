@@ -8,22 +8,19 @@
 #include <framework/disable_all_warnings.h>
 DISABLE_WARNINGS_PUSH()
 #include <glm/geometric.hpp>
+#include <glm/gtx/transform.hpp>
 DISABLE_WARNINGS_POP()
 #include <cmath>
 #include <random>
 #include <vector>
 
 
-// samples a segment light source
-// you should fill in the vectors position and color with the sampled position and color
 void sampleSegmentLight(const SegmentLight& segmentLight, glm::vec3& position, glm::vec3& color) {
     float segFrac   = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, 1.0f);
     position        = glm::mix(segmentLight.endpoint0, segmentLight.endpoint1, segFrac);
     color           = glm::mix(segmentLight.color0, segmentLight.color1, segFrac);
 }
 
-// samples a parallelogram light source
-// you should fill in the vectors position and color with the sampled position and color
 void sampleParallelogramLight(const ParallelogramLight& parallelogramLight, glm::vec3& position, glm::vec3& color) {
     float axOneFrac = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, 1.0f);
     float axTwoFrac = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, 1.0f);
@@ -33,38 +30,38 @@ void sampleParallelogramLight(const ParallelogramLight& parallelogramLight, glm:
     color               = glm::mix(linLerp01, linLerp23, axTwoFrac);
 }
 
-// Given an intersection, computes the contribution from all light sources at the intersection point
-// in this method you should cycle the light sources and for each one compute their contribution
-// don't forget to check for visibility (shadows!)
-Reservoir genCanonicalSamples(const Scene& scene, const BvhInterface& bvh, const Features& features, Ray ray) {
+void sampleDiskLight(const DiskLight& diskLight, glm::vec3& position, glm::vec3& color) {
+    glm::vec3 planeVector;
+    if (diskLight.normal.x == 0.0f) { planeVector = glm::normalize(glm::cross(diskLight.normal, glm::vec3(1.0f, 0.0f, 0.0f))); }
+    else                            { planeVector = glm::normalize(glm::cross(diskLight.normal, glm::vec3(0.0f, 0.0f, 1.0f))); }
+    float randomAngle           = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, 360.0f);
+    glm::mat3 rotation          = glm::rotate(randomAngle, diskLight.normal);
+    float distanceFromCenter    = linearMap(static_cast<float>(rand()), 0.0f, RAND_MAX, 0.0f, diskLight.radius);
+    position                    = diskLight.position + (distanceFromCenter * rotation * planeVector);
+    color                       = diskLight.color;
+}
+
+Reservoir genCanonicalSamples(const Scene& scene, const EmbreeInterface& embreeInterface, const Features& features, const RayHit& rayHit) {
+    // Commit primary hit info to reservoir
     Reservoir reservoir(features.numSamplesInReservoir);
+    reservoir.cameraRay = rayHit.ray;
+    reservoir.hitInfo   = rayHit.hit;
     
     // No lights to sample, just return
     if (scene.lights.size() == 0UL) { return reservoir; }
-    
-    // Compute camera ray intersection with scene
-    bool intersectScene = bvh.intersect(ray, reservoir.hitInfo, features);
-    reservoir.cameraRay = ray;
-    if (!intersectScene) {   
-        drawRay(ray, CAMERA_RAY_NO_HIT_COLOR);  // Draw a red debug ray if the ray missed
-        return reservoir;                       // No intersection with scene, so empty reservoir
-    }
 
     // Uniform selection of light sources
-    // TODO: Figure out better solution than uniform sampling (fuck you, point lights)
     std::random_device rd;
     std::mt19937 gen(rd());
     std::uniform_int_distribution<> distr(0, scene.lights.size() - 1UL);
 
     // Compute intersection point properties
-    glm::vec3 intersectionPosition  = ray.origin + (ray.t * ray.direction);
+    glm::vec3 intersectionPosition  = reservoir.cameraRay.origin + (reservoir.cameraRay.t * reservoir.cameraRay.direction);
     glm::vec3 diffuseColor          = diffuseAlbedo(reservoir.hitInfo, features);
 
     // Zero out cautionary one sample for zero division avoidance
-    for (size_t reservoirIdx = 0ULL; reservoirIdx < reservoir.outputSamples.size(); reservoirIdx++) {
-        reservoir.sampleNums[reservoirIdx] = 0ULL;
-    }
-    
+    reservoir.numSamples = 0ULL;
+
     // Obtain initial light samples
     for (uint32_t sampleIdx = 0U; sampleIdx < features.initialLightSamples; sampleIdx++) {
         // Generate sample
@@ -80,6 +77,9 @@ Reservoir genCanonicalSamples(const Scene& scene, const BvhInterface& bvh, const
         } else if (std::holds_alternative<ParallelogramLight>(light)) {
             const ParallelogramLight parallelogramLight = std::get<ParallelogramLight>(light);
             sampleParallelogramLight(parallelogramLight, sample.position, sample.color);
+        } else if (std::holds_alternative<DiskLight>(light)) {
+            const DiskLight diskLight = std::get<DiskLight>(light);
+            sampleDiskLight(diskLight, sample.position, sample.color);
         }
 
         // Update reservoir
@@ -88,15 +88,14 @@ Reservoir genCanonicalSamples(const Scene& scene, const BvhInterface& bvh, const
     }
 
     // Set output weight and do optional visibility check
-    for (size_t reservoirIdx = 0ULL; reservoirIdx < reservoir.outputSamples.size(); reservoirIdx++)  {
-        if (features.initialSamplesVisibilityCheck && !testVisibilityLightSample(reservoir.outputSamples[reservoirIdx].lightSample.position, bvh, features, ray, reservoir.hitInfo)) {
-            reservoir.outputSamples[reservoirIdx].outputWeight = 0.0f;
-        } else {
-            float pdfValue = targetPDF(reservoir.outputSamples[reservoirIdx].lightSample, reservoir.cameraRay, reservoir.hitInfo, features);
-            if (pdfValue == 0.0f)   { reservoir.outputSamples[reservoirIdx].outputWeight  = 0.0f; }
-            else                    { reservoir.outputSamples[reservoirIdx].outputWeight  = (1.0f / pdfValue) * 
-                                                                                            (1.0f / reservoir.sampleNums[reservoirIdx]) *
-                                                                                            reservoir.wSums[reservoirIdx]; }
+    for (SampleData& reservoirSample : reservoir.outputSamples) {
+        if (features.initialSamplesVisibilityCheck && !testVisibilityLightSample(reservoirSample.lightSample.position, embreeInterface, features, reservoir.cameraRay, reservoir.hitInfo)) { reservoirSample.outputWeight = 0.0f; }
+        else {
+            float pdfValue = targetPDF(reservoirSample.lightSample, reservoir.cameraRay, reservoir.hitInfo, features);
+            if (pdfValue == 0.0f)   { reservoirSample.outputWeight  = 0.0f; }
+            else                    { reservoirSample.outputWeight  = (1.0f / pdfValue) * 
+                                                                      (1.0f / reservoir.numSamples) *
+                                                                      reservoir.wSum; }
         }
     }
     
