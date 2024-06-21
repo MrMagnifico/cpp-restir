@@ -91,6 +91,7 @@ struct Features {
     bool temporalReuse                  = true;
 
     // ReSTIR parameters
+    uint32_t maxIterations              = 1U;
     uint32_t numSamplesInReservoir      = 1U;
     uint32_t initialLightSamples        = 32U;
     uint32_t numNeighboursToSample      = 5U;

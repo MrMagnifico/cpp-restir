@@ -41,19 +41,14 @@ void sampleDiskLight(const DiskLight& diskLight, glm::vec3& position, glm::vec3&
     color                       = diskLight.color;
 }
 
-Reservoir genCanonicalSamples(const Scene& scene, const EmbreeInterface& embreeInterface, const Features& features, Ray ray) {
+Reservoir genCanonicalSamples(const Scene& scene, const EmbreeInterface& embreeInterface, const Features& features, const RayHit& rayHit) {
+    // Commit primary hit info to reservoir
     Reservoir reservoir(features.numSamplesInReservoir);
+    reservoir.cameraRay = rayHit.ray;
+    reservoir.hitInfo   = rayHit.hit;
     
     // No lights to sample, just return
     if (scene.lights.size() == 0UL) { return reservoir; }
-    
-    // Compute camera ray intersection with scene
-    bool intersectScene = embreeInterface.closestHit(ray, reservoir.hitInfo);
-    reservoir.cameraRay = ray;
-    if (!intersectScene) {   
-        drawRay(ray, CAMERA_RAY_NO_HIT_COLOR);  // Draw a red debug ray if the ray missed
-        return reservoir;                       // No intersection with scene, so empty reservoir
-    }
 
     // Uniform selection of light sources
     std::random_device rd;
@@ -61,11 +56,13 @@ Reservoir genCanonicalSamples(const Scene& scene, const EmbreeInterface& embreeI
     std::uniform_int_distribution<> distr(0, scene.lights.size() - 1UL);
 
     // Compute intersection point properties
-    glm::vec3 intersectionPosition  = ray.origin + (ray.t * ray.direction);
+    glm::vec3 intersectionPosition  = reservoir.cameraRay.origin + (reservoir.cameraRay.t * reservoir.cameraRay.direction);
     glm::vec3 diffuseColor          = diffuseAlbedo(reservoir.hitInfo, features);
 
+    // Zero out cautionary one sample for zero division avoidance
+    reservoir.numSamples = 0ULL;
+
     // Obtain initial light samples
-    reservoir.numSamples = 0ULL; // Zero out cautionary one sample for zero division avoidance
     for (uint32_t sampleIdx = 0U; sampleIdx < features.initialLightSamples; sampleIdx++) {
         // Generate sample
         LightSample sample;
@@ -92,7 +89,7 @@ Reservoir genCanonicalSamples(const Scene& scene, const EmbreeInterface& embreeI
 
     // Set output weight and do optional visibility check
     for (SampleData& reservoirSample : reservoir.outputSamples) {
-        if (features.initialSamplesVisibilityCheck && !testVisibilityLightSample(reservoirSample.lightSample.position, embreeInterface, features, ray, reservoir.hitInfo)) { reservoirSample.outputWeight = 0.0f; }
+        if (features.initialSamplesVisibilityCheck && !testVisibilityLightSample(reservoirSample.lightSample.position, embreeInterface, features, reservoir.cameraRay, reservoir.hitInfo)) { reservoirSample.outputWeight = 0.0f; }
         else {
             float pdfValue = targetPDF(reservoirSample.lightSample, reservoir.cameraRay, reservoir.hitInfo, features);
             if (pdfValue == 0.0f)   { reservoirSample.outputWeight  = 0.0f; }

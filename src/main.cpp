@@ -59,7 +59,7 @@ int main(int argc, char** argv) {
         camera.setCamera(config.cameras[0].lookAt, glm::radians(config.cameras[0].rotation), config.cameras[0].distanceFromLookAt);
 
         SceneType sceneType = SceneType::CornellNightClub;
-        std::optional<Ray> optDebugRay;
+        std::optional<RayHit> optDebugRayHit;
         Scene scene         = loadScenePrebuilt(sceneType, config.dataPath, camera, config.features);
         EmbreeInterface embreeInterface(scene);
         std::shared_ptr<ReservoirGrid> previousFrameGrid;
@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
         ViewMode viewMode       = ViewMode::Rasterization;
         int selectedLightIdx    = scene.lights.empty() ? -1 : 0;
 
-        UiManager uiManager(embreeInterface, camera, config, optDebugRay, previousFrameGrid, scene, sceneType, screen, viewMode, window,
+        UiManager uiManager(embreeInterface, camera, config, optDebugRayHit, previousFrameGrid, scene, sceneType, screen, viewMode, window,
                             selectedLightIdx);
 
         window.registerKeyCallback([&](int key, int /* scancode */, int action, int /* mods */) {
@@ -75,8 +75,9 @@ int main(int argc, char** argv) {
                 switch (key) {
                     // Shoot a ray. Produce a ray from camera to the far plane.
                     case GLFW_KEY_R: {
-                        const auto tmp  = window.getNormalizedCursorPos();
-                        optDebugRay     = camera.generateRay(tmp * 2.0f - 1.0f);
+                        optDebugRayHit.emplace();
+                        const auto tmp              = window.getNormalizedCursorPos();
+                        optDebugRayHit.value().ray  = camera.generateRay(tmp * 2.0f - 1.0f);
                         break;
                     }
                     case GLFW_KEY_ESCAPE: {
@@ -112,13 +113,13 @@ int main(int argc, char** argv) {
                 case ViewMode::Rasterization: {
                     glPushAttrib(GL_ALL_ATTRIB_BITS);
                     drawSceneOpenGL(scene);
-                    if (optDebugRay) {
+                    if (optDebugRayHit) {
                         // Call getFinalColor for the debug ray. Ignore the result but tell the function that it should
                         // draw the rays instead.
                         enableDebugDraw = true;
                         glDisable(GL_LIGHTING);
                         glDepthFunc(GL_LEQUAL);
-                        (void) genCanonicalSamples(scene, embreeInterface, config.features, *optDebugRay);
+                        (void) genCanonicalSamples(scene, embreeInterface, config.features, optDebugRayHit.value());
                         enableDebugDraw = false;
                     }
                     glPopAttrib();
@@ -128,7 +129,7 @@ int main(int argc, char** argv) {
                 case ViewMode::RayTracing: {
                     const auto start    = std::chrono::high_resolution_clock::now();
                     screen.clear(glm::vec3(0.0f));
-                    previousFrameGrid   = make_shared<ReservoirGrid>(renderRayTracing(previousFrameGrid, scene, camera, embreeInterface, screen, camera.getLastDelta(), config.features));
+                    previousFrameGrid   = make_shared<ReservoirGrid>(renderRayTracing(previousFrameGrid, scene, camera, embreeInterface, screen, config.features));
                     screen.setPixel(0, 0, glm::vec3(1.0f));
                     screen.draw(); // Takes the image generated using ray tracing and outputs it to the screen using OpenGL.
                     const auto end      = std::chrono::high_resolution_clock::now();
@@ -184,7 +185,7 @@ int main(int argc, char** argv) {
                 screen.clear(glm::vec3(0.0f));
                 Trackball camera { &window, glm::radians(cameraConfig.fieldOfView), cameraConfig.distanceFromLookAt };
                 camera.setCamera(cameraConfig.lookAt, glm::radians(cameraConfig.rotation), cameraConfig.distanceFromLookAt);
-                previousFrameGrid           = make_shared<ReservoirGrid>(renderRayTracing(previousFrameGrid, scene, camera, embreeInterface, screen, camera.getLastDelta(), config.features));
+                previousFrameGrid           = make_shared<ReservoirGrid>(renderRayTracing(previousFrameGrid, scene, camera, embreeInterface, screen, config.features));
                 const auto filename_base    = fmt::format("{}_{}_cam_{}", sceneName, start_time_string, index);
                 const auto filepath         = config.outputDir / (filename_base + ".bmp");
                 fmt::print("Image {} saved to {}\n", index, filepath.string());

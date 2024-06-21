@@ -14,7 +14,7 @@
 
 class UiManager {
 public:
-    UiManager(EmbreeInterface& embreeInterface, Trackball& camera, Config& config, std::optional<Ray>& optDebugRay,
+    UiManager(EmbreeInterface& embreeInterface, Trackball& camera, Config& config, std::optional<RayHit>& optDebugRayHit,
               std::shared_ptr<ReservoirGrid>& previousFrameGrid, Scene& scene, SceneType& sceneType,
               Screen& screen, ViewMode& viewMode, Window& window,
               int& selectedLightIdx);
@@ -26,7 +26,7 @@ private:
     EmbreeInterface& embreeInterface;
     Trackball& camera;
     Config& config;
-    std::optional<Ray>& optDebugRay;
+    std::optional<RayHit>& optDebugRayHit;
     std::shared_ptr<ReservoirGrid>& previousFrameGrid;
     Scene& scene;
     SceneType& sceneType;

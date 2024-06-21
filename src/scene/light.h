@@ -15,4 +15,4 @@ void sampleParallelogramLight(const ParallelogramLight& parallelogramLight, glm:
 void sampleDiskLight(const DiskLight& diskLight, glm::vec3& position, glm::vec3& color);
 
 // ReSTIR per-pixel canonical samples
-Reservoir genCanonicalSamples(const Scene& scene, const EmbreeInterface& embreeInterface, const Features& features, Ray ray);
+Reservoir genCanonicalSamples(const Scene& scene, const EmbreeInterface& embreeInterface, const Features& features, const RayHit& rayHit);

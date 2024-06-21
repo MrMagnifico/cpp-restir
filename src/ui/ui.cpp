@@ -20,14 +20,14 @@ DISABLE_WARNINGS_POP()
 #include <variant>
 
 
-UiManager::UiManager(EmbreeInterface& embreeInterface, Trackball& camera, Config& config, std::optional<Ray>& optDebugRay,
+UiManager::UiManager(EmbreeInterface& embreeInterface, Trackball& camera, Config& config, std::optional<RayHit>& optDebugRayHit,
                      std::shared_ptr<ReservoirGrid>& previousFrameGrid, Scene& scene, SceneType& sceneType,
                      Screen& screen, ViewMode& viewMode, Window& window,
                      int& selectedLightIdx)
     : embreeInterface(embreeInterface)
     , camera(camera)
     , config(config)
-    , optDebugRay(optDebugRay)
+    , optDebugRayHit(optDebugRayHit)
     , previousFrameGrid(previousFrameGrid)
     , scene(scene)
     , sceneType(sceneType)
@@ -88,13 +88,13 @@ void UiManager::drawSceneSelection() {
     std::transform(std::begin(availableScenes), std::end(availableScenes), std::back_inserter(availableScenesPointers),
                    [](const auto& str) { return str.data(); });
     if (ImGui::Combo("Scene", reinterpret_cast<int*>(&sceneType), availableScenesPointers.data(), static_cast<int>(availableScenesPointers.size()))) {
-        optDebugRay.reset();
+        optDebugRayHit.reset();
         scene               = loadScenePrebuilt(sceneType, config.dataPath, camera, config.features);
         selectedLightIdx    = scene.lights.empty() ? -1 : 0;
         embreeInterface.changeScene(scene);
-        if (optDebugRay) {
+        if (optDebugRayHit) {
             HitInfo dummy {};
-            embreeInterface.closestHit(optDebugRay.value(), dummy);
+            embreeInterface.closestHit(optDebugRayHit.value().ray, dummy);
         }
     }
 }
@@ -143,7 +143,7 @@ void UiManager::drawRenderToFile() {
             // Perform a new render and measure the time it took to generate the image.
             using clock         = std::chrono::high_resolution_clock;
             const auto start    = clock::now();
-            previousFrameGrid   = std::make_shared<ReservoirGrid>(renderRayTracing(previousFrameGrid, scene, camera, embreeInterface, screen, camera.getLastDelta(), config.features));
+            previousFrameGrid   = std::make_shared<ReservoirGrid>(renderRayTracing(previousFrameGrid, scene, camera, embreeInterface, screen, config.features));
             const auto end      = clock::now();
             std::cout << "Time to render image: " << std::chrono::duration<float, std::milli>(end - start).count() << " milliseconds" << std::endl;
             
@@ -256,6 +256,7 @@ void UiManager::drawRestirFeaturesToggles() {
 
 void UiManager::drawRestirParams() {
     if (ImGui::CollapsingHeader("Parameters", ImGuiTreeNodeFlags_DefaultOpen)) {
+        ImGui::SliderInt("Max iterations",              (int*) &config.features.maxIterations, 1, 64);
         ImGui::SliderInt("Samples per reservoir",       (int*) &config.features.numSamplesInReservoir,      1, 16);
         ImGui::SliderInt("Canonical sample count",      (int*) &config.features.initialLightSamples,        1, 128);
         ImGui::SliderInt("Neighbours to sample",        (int*) &config.features.numNeighboursToSample,      1, 10);
